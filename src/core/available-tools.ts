@@ -16,9 +16,10 @@ import { resolveToolSkillsDir, toolSupportsSkills } from './shared/skill-paths.j
  * Scans the project path for AI tool configuration directories and returns
  * the tools that are present.
  *
- * For tools with `detectionPaths`, checks those specific paths (files or
- * directories). Otherwise checks the project's `skillsDir`, or managed skill
- * files in the user's home directory for a global skill target.
+ * For tools with `detectionPaths`, checks those specific paths. Detection
+ * paths can be files or directories unless the tool marks them directory-only.
+ * Otherwise checks the project's `skillsDir`, or managed skill files in the
+ * user's home directory for a global skill target.
  */
 export function getAvailableTools(projectPath: string): AIToolOption[] {
   const available = AI_TOOLS.filter((tool) => {
@@ -34,14 +35,8 @@ export function getAvailableTools(projectPath: string): AIToolOption[] {
     if (!tool.skillsDir) return false;
 
     if (tool.detectionPaths && tool.detectionPaths.length > 0) {
-      // statSync without .isDirectory() — detection paths can be files or directories
       return tool.detectionPaths.some((p) => {
-        try {
-          fs.statSync(path.join(projectPath, p));
-          return true;
-        } catch {
-          return false;
-        }
+        return isDetectionPathAvailable(projectPath, p, tool.detectionPathsRequireDirectory);
       });
     }
 
@@ -61,4 +56,17 @@ export function getAvailableTools(projectPath: string): AIToolOption[] {
   return available.filter(
     (tool) => tool.globalSkillsDir || activeProjectTools.has(tool.value)
   );
+}
+
+export function isDetectionPathAvailable(
+  projectPath: string,
+  detectionPath: string,
+  requireDirectory = false
+): boolean {
+  try {
+    const stat = fs.statSync(path.join(projectPath, detectionPath));
+    return requireDirectory ? stat.isDirectory() : true;
+  } catch {
+    return false;
+  }
 }

@@ -32,7 +32,8 @@ export interface AIToolOption {
   skillsDir?: string; // e.g., '.claude' - /skills suffix per Agent Skills spec
   legacySkillsDirs?: string[]; // Former roots read for detection and migrated after replacement
   globalSkillsDir?: string; // e.g., '.minimax' - /skills suffix, resolved from the user's home directory
-  detectionPaths?: string[]; // Override skillsDir for auto-detection; any path existing triggers detection
+  detectionPaths?: string[]; // Override skillsDir for auto-detection; paths can be files or directories by default
+  detectionPathsRequireDirectory?: boolean; // True when every detectionPath signal must be a directory
   setupNote?: string; // Manual setup required before the tool picks up generated files; shown after init/update
   requiresIdeRestart?: boolean; // True when slash commands are loaded by an IDE/editor process (a CLI picks them up immediately, so no restart hint — see #1067)
 }
@@ -47,7 +48,7 @@ export const AI_TOOLS: AIToolOption[] = [
   { name: 'Command Code', value: 'command-code', available: true, successLabel: 'Command Code', skillsDir: '.commandcode' },
   { name: 'CodeArts', value: 'codeartsagent', available: true, successLabel: 'CodeArts', skillsDir: '.codeartsdoer' },
   { name: 'Codex', value: 'codex', available: true, successLabel: 'Codex', skillsDir: '.agents', legacySkillsDirs: ['.codex'], detectionPaths: ['.agents/skills', '.codex/skills'] },
-  { name: 'DeepSeek Harness', value: 'dsh', available: true, successLabel: 'DeepSeek Harness', skillsDir: '.dsh', detectionPaths: ['.dsh/skills', '.dsh'] },
+  { name: 'DeepSeek Harness', value: 'dsh', available: true, successLabel: 'DeepSeek Harness', skillsDir: '.dsh', detectionPaths: ['.dsh/skills', '.dsh'], detectionPathsRequireDirectory: true },
   { name: 'Devin Desktop (formerly Windsurf)', value: 'devin', available: true, successLabel: 'Devin Desktop', skillsDir: '.devin', detectionPaths: ['.devin', '.windsurf'], requiresIdeRestart: true },
   { name: 'ForgeCode', value: 'forgecode', available: true, successLabel: 'ForgeCode', skillsDir: '.forge' },
   { name: 'CodeBuddy Code (CLI)', value: 'codebuddy', available: true, successLabel: 'CodeBuddy Code', skillsDir: '.codebuddy' },

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { promises as fs } from 'fs';
 import path from 'path';
 import os from 'os';
-import { getAvailableTools } from '../../src/core/available-tools.js';
+import { getAvailableTools, isDetectionPathAvailable } from '../../src/core/available-tools.js';
 
 describe('available-tools', () => {
   let testDir: string;
@@ -514,6 +514,7 @@ describe('available-tools', () => {
         name: 'DeepSeek Harness',
         skillsDir: '.dsh',
         detectionPaths: ['.dsh/skills', '.dsh'],
+        detectionPathsRequireDirectory: true,
       });
     });
 
@@ -529,6 +530,20 @@ describe('available-tools', () => {
     it('should not detect DeepSeek Harness when no .dsh signal exists', () => {
       const tools = getAvailableTools(testDir);
       expect(tools.map((t) => t.value)).not.toContain('dsh');
+    });
+
+    it('should not detect DeepSeek Harness from a regular .dsh file', async () => {
+      await fs.writeFile(path.join(testDir, '.dsh'), 'not a directory');
+
+      const tools = getAvailableTools(testDir);
+      expect(tools.map((t) => t.value)).not.toContain('dsh');
+    });
+
+    it('should not treat a regular .dsh/skills file as a directory-only signal', async () => {
+      await fs.mkdir(path.join(testDir, '.dsh'), { recursive: true });
+      await fs.writeFile(path.join(testDir, '.dsh', 'skills'), 'not a directory');
+
+      expect(isDetectionPathAvailable(testDir, '.dsh/skills', true)).toBe(false);
     });
   });
 });
