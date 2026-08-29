@@ -117,14 +117,21 @@ repo-local `.minimax` or `.mavis` directories. Commands-only delivery leaves
 existing global MiniMax Code skills untouched so one project's delivery setting
 cannot remove skills used by another project.
 
-DeepSeek Harness is a project-local skills-only integration. Its command-line
-tool id is `dsh` — for example, `openspec init --tools dsh`. OpenSpec
-writes `.dsh/skills/openspec-*/SKILL.md`, which dsh scans as its highest-priority
-project root. dsh also reads the shared `.agents/skills` root at a lower
-priority, so a project that configures both keeps the dedicated `.dsh` tree
-without the two writers clobbering each other. dsh surfaces skills to the model
-through its skill catalog and `skill` tool, and supports user invocations such
-as `/openspec-propose`.
+### DeepSeek Harness
+
+In your terminal, run `openspec init --tools dsh`. In your AI chat, use
+`/openspec-propose`.
+
+- **Skills path**: `.dsh/skills/openspec-*/SKILL.md`. DSH prefers this tree over
+  same-named skills in `.agents/skills/`.
+- **Project root**: DSH uses the nearest `.git` ancestor, or the current directory
+  outside Git. Initialize OpenSpec there. For a nested project, configure DSH's
+  `customSkillDirs` with the absolute path to that project's `.dsh/skills/`
+  directory. Git-root skills still win if names overlap
+  ([upstream discovery rules](https://github.com/deepseek-ai/deepseek-harness/tree/master/packages/skill/skill-filesystem)).
+- **Delivery**: use `skills` or `both`. DSH has no command adapter, so `commands`
+  installs no DSH workflows. Change delivery with `openspec config profile`,
+  then rerun `openspec init --tools dsh`.
 
 ### GitHub Copilot cloud coding agent
 

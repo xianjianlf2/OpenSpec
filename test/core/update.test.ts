@@ -195,13 +195,64 @@ Old instructions content
       expect(refreshed).not.toContain('Old instructions content');
       expect(refreshed).toContain('license: MIT');
 
+      const beforeSecondUpdate = await fs.stat(skillFile);
       const consoleSpy = vi.spyOn(console, 'log');
       await updateCommand.execute(testDir);
       expect(consoleSpy.mock.calls.flat().map(String).join('\n')).toContain('up to date');
       consoleSpy.mockRestore();
 
       expect(await fs.readFile(skillFile, 'utf-8')).toBe(refreshed);
+      expect((await fs.stat(skillFile)).mtimeMs).toBe(beforeSecondUpdate.mtimeMs);
     });
+
+    it.each(['profile', 'delivery'] as const)(
+      'should preserve custom DeepSeek Harness and shared skills when changing %s',
+      async (setting) => {
+        const customFiles = [
+          path.join(testDir, '.dsh', 'skills', 'my-custom-skill', 'SKILL.md'),
+          path.join(testDir, '.dsh', 'skills', 'openspec-user-notes', 'SKILL.md'),
+          path.join(testDir, '.agents', 'skills', 'shared-custom-skill', 'SKILL.md'),
+        ];
+        for (const file of customFiles) {
+          await fs.mkdir(path.dirname(file), { recursive: true });
+          await fs.writeFile(file, 'custom skill instructions');
+        }
+
+        await new InitCommand({ tools: 'dsh', force: true }).execute(testDir);
+        const skillsDir = path.join(testDir, '.dsh', 'skills');
+        expect(await FileSystemUtils.fileExists(
+          path.join(skillsDir, 'openspec-apply-change', 'SKILL.md')
+        )).toBe(true);
+
+        setMockConfig(setting === 'profile'
+          ? { featureFlags: {}, profile: 'custom', workflows: ['explore'], delivery: 'both' }
+          : { featureFlags: {}, profile: 'core', delivery: 'commands' });
+
+        const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+        await updateCommand.execute(testDir);
+
+        const expectedSkills = ['my-custom-skill', 'openspec-user-notes'];
+        if (setting === 'profile') {
+          expectedSkills.push('openspec-explore');
+        } else {
+          const correction = consoleSpy.mock.calls.flat().map(String)
+            .find((entry) => entry.includes('No skills or commands remain'));
+          expect(correction).toContain('DeepSeek Harness');
+          expect(correction).toContain('openspec config set delivery both');
+        }
+        expect((await fs.readdir(skillsDir)).sort()).toEqual(expectedSkills.sort());
+        expect(await FileSystemUtils.directoryExists(path.join(testDir, '.dsh', 'commands'))).toBe(false);
+        expect(await fs.readdir(path.join(testDir, '.agents', 'skills'))).toEqual(['shared-custom-skill']);
+
+        consoleSpy.mockClear();
+        await updateCommand.execute(testDir);
+        expect(consoleSpy.mock.calls.flat().map(String).join('\n')).not.toContain('Updating 1 tool(s)');
+        expect((await fs.readdir(skillsDir)).sort()).toEqual(expectedSkills.sort());
+        for (const file of customFiles) {
+          expect(await fs.readFile(file, 'utf-8')).toBe('custom skill instructions');
+        }
+      }
+    );
 
     it('should update MiniMax Code skills without touching unrelated global skills', async () => {
       const skillsDir = path.join(testDir, 'home', '.minimax', 'skills');
@@ -621,6 +672,57 @@ metadata:
           entry.includes('Force updating 1 tool(s): codex')
         )
       ).toBe(true);
+    });
+
+    it('should refresh Antigravity workflows without rewriting Codex-owned shared skills', async () => {
+      await new InitCommand({ tools: 'antigravity,codex', force: true }).execute(testDir);
+
+      await new UpdateCommand({ force: true }).execute(testDir);
+
+      const skillsDir = path.join(testDir, '.agents', 'skills');
+      expect(await fs.readFile(path.join(skillsDir, '.openspec-target'), 'utf-8')).toBe('codex\n');
+      const proposeSkill = await fs.readFile(
+        path.join(skillsDir, 'openspec-propose', 'SKILL.md'),
+        'utf-8'
+      );
+      expect(proposeSkill).toContain('$openspec-apply-change');
+      expect(proposeSkill).toContain('/openspec-apply-change');
+      await expect(
+        fs.access(path.join(testDir, '.agents', 'workflows', 'opsx-propose.md'))
+      ).resolves.toBeUndefined();
+      expect(getConfiguredToolsForProfileSync(testDir)).toEqual([
+        'antigravity',
+        'codex',
+      ]);
+    });
+
+    it('should upgrade legacy Antigravity workflows beside Codex-owned shared skills', async () => {
+      await new InitCommand({ tools: 'antigravity', force: true }).execute(testDir);
+      const legacyWorkflow = path.join(testDir, '.agent', 'workflows', 'opsx-propose.md');
+      await fs.mkdir(path.dirname(legacyWorkflow), { recursive: true });
+      await fs.copyFile(
+        path.join(testDir, '.agents', 'workflows', 'opsx-propose.md'),
+        legacyWorkflow
+      );
+      await fs.cp(
+        path.join(testDir, '.agents', 'skills'),
+        path.join(testDir, '.agent', 'skills'),
+        { recursive: true }
+      );
+      await fs.rm(path.join(testDir, '.agents', 'workflows'), { recursive: true });
+      await new InitCommand({ tools: 'codex', force: true }).execute(testDir);
+
+      await new UpdateCommand().execute(testDir);
+
+      const skillsDir = path.join(testDir, '.agents', 'skills');
+      expect(await fs.readFile(path.join(skillsDir, '.openspec-target'), 'utf-8')).toBe('codex\n');
+      expect(
+        await fs.readFile(path.join(skillsDir, 'openspec-propose', 'SKILL.md'), 'utf-8')
+      ).toContain('$openspec-apply-change');
+      await expect(
+        fs.access(path.join(testDir, '.agents', 'workflows', 'opsx-propose.md'))
+      ).resolves.toBeUndefined();
+      await expect(fs.access(legacyWorkflow)).rejects.toThrow();
     });
 
     it('should keep an explicit agents target despite preserved legacy Codex skills', async () => {
@@ -2900,6 +3002,34 @@ More user content after markers.
       expect(await FileSystemUtils.fileExists(cursorSkillFile)).toBe(true);
 
       consoleSpy.mockRestore();
+    });
+
+    it('arbitrates legacy Antigravity and Codex before writing the shared tree', async () => {
+      const antigravityLegacy = path.join(
+        testDir,
+        '.agent',
+        'workflows',
+        'openspec-propose.md'
+      );
+      const codexLegacy = path.join(testDir, '.codex', 'prompts', 'openspec-propose.md');
+      await fs.mkdir(path.dirname(antigravityLegacy), { recursive: true });
+      await fs.mkdir(path.dirname(codexLegacy), { recursive: true });
+      await fs.writeFile(antigravityLegacy, 'legacy Antigravity command');
+      await fs.writeFile(codexLegacy, 'legacy Codex prompt');
+
+      await new UpdateCommand({ force: true }).execute(testDir);
+
+      const skillsDir = path.join(testDir, '.agents', 'skills');
+      expect(await fs.readFile(path.join(skillsDir, '.openspec-target'), 'utf-8')).toBe('codex\n');
+      const proposeSkill = await fs.readFile(
+        path.join(skillsDir, 'openspec-propose', 'SKILL.md'),
+        'utf-8'
+      );
+      expect(proposeSkill).toContain('$openspec-apply-change');
+      expect(proposeSkill).toContain('/openspec-apply-change');
+      await expect(
+        fs.access(path.join(testDir, '.agents', 'workflows', 'opsx-propose.md'))
+      ).resolves.toBeUndefined();
     });
 
     it('should not upgrade legacy tools already configured', async () => {
