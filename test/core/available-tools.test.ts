@@ -574,5 +574,17 @@ describe('available-tools', () => {
 
       expect(isDetectionPathAvailable(testDir, '.dsh/skills', true)).toBe(false);
     });
+
+    it('should detect SourceCraft Code Assistant when .codeassistant directory exists', async () => {
+      await fs.mkdir(path.join(testDir, '.codeassistant'), { recursive: true });
+
+      const tools = getAvailableTools(testDir);
+      const toolValues = tools.map((t) => t.value);
+      expect(toolValues).toContain('codeassistant');
+
+      const codeassistantTool = tools.find((t) => t.value === 'codeassistant');
+      expect(codeassistantTool?.name).toBe('SourceCraft Code Assistant');
+      expect(codeassistantTool?.skillsDir).toBe('.codeassistant');
+    });
   });
 });
